@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Tu jardín</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%B8%3C/text%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .texto { position: fixed; left: 0; right: 0; text-align: center; padding: 0 24px; box-sizing: border-box;
+           font-family: "Courier New", Courier, monospace; color: #ffc8dc; pointer-events: none;
+           text-shadow: 0 0 12px #000, 0 0 4px #000; transition: opacity 1.6s; }
+  #pista { top: calc(env(safe-area-inset-top) + 9%); font-size: clamp(15px, 4.2vw, 21px); }
+  #mensaje { bottom: calc(env(safe-area-inset-bottom) + 10%); font-size: clamp(18px, 5vw, 26px); line-height: 1.5; opacity: 0; }
+  #mensaje.visible { opacity: 1; }
+  #cuenta { bottom: calc(env(safe-area-inset-bottom) + 3%); font-size: 14px; color: #8a7a82; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="pista" class="texto">Toca la pantalla para plantar lirios</div>
+<div id="mensaje" class="texto"></div>
+<div id="cuenta" class="texto"></div>
+<script>
+// ---------- CAMBIA AQUÍ ----------
+const MENSAJE = "Para ti, con cariño";   // lo que aparece cuando termina de plantar
+const META = 10;                          // cuántos lirios tiene que plantar para ver el mensaje
+// ---------------------------------
+
+const COLORES = [[235, 95, 170], [248, 244, 238], [200, 25, 70], [245, 170, 200], [250, 215, 120]];
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const pista = document.getElementById("pista");
+const mensaje = document.getElementById("mensaje");
+const cuenta = document.getElementById("cuenta");
+let W, H, D, estrellas = [];
+const flores = [], chispas = [];
+let plantadas = 0, mensajeListo = false;
+
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const rgb = (c, a = 1) => "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+const mezcla = (c1, c2, t) => c1.map((v, i) => Math.round(v + (c2[i] - v) * t));
+const salida = t => 1 - Math.pow(1 - t, 3);
+const rebote = t => { const k = 2.70158; return 1 + k * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2); };
+
+function ajustar() {
+  D = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  cv.width = W * D; cv.height = H * D; ctx.setTransform(D, 0, 0, D, 0, 0);
+  estrellas = Array.from({ length: Math.round(W * H / 9000) }, () => ({
+    x: Math.random() * W, y: Math.random() * H, fase: Math.random() * 6.28, vel: 0.4 + Math.random() * 1.2,
+    c: [[255, 255, 255], [255, 232, 160], [175, 205, 255], [255, 190, 220]][Math.floor(Math.random() * 4)]
+  }));
+}
+addEventListener("resize", ajustar);
+ajustar();
+
+function plantar(x, y) {
+  y = Math.min(y, H * 0.8);
+  flores.push({
+    x, y, baseX: x + (Math.random() - 0.5) * 90, lado: Math.random() < 0.5 ? -1 : 1,
+    color: COLORES[Math.floor(Math.random() * COLORES.length)], t0: performance.now(),
+    rot: Math.random() * 6.28, fase: Math.random() * 6.28,
+    largo: Math.min(W, H) * (0.075 + Math.random() * 0.04), chispas: false
+  });
+  if (flores.length > 60) flores.shift();
+  plantadas++;
+  pista.style.opacity = 0;
+  if (!mensajeListo) cuenta.textContent = Math.min(plantadas, META) + " / " + META;
+  if (plantadas >= META && !mensajeListo) {
+    mensajeListo = true; cuenta.textContent = "";
+    setTimeout(() => { mensaje.textContent = MENSAJE; mensaje.classList.add("visible"); }, 2200);
+  }
+}
+cv.addEventListener("pointerdown", e => { e.preventDefault(); plantar(e.clientX, e.clientY); });
+
+function punto(f, t) {                 // punto del tallo (curva) en t entre 0 y 1
+  const x0 = f.baseX, y0 = H + 6, cx = (f.baseX + f.x) / 2 + f.lado * 38, cy = (H + f.y) / 2, x1 = f.x, y1 = f.y;
+  const u = 1 - t;
+  return [u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1];
+}
+
+function hoja(x, y, ang, tam) {
+  if (tam <= 0.02) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(tam, tam);
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(10, -6, 26, -6, 36, 0); ctx.bezierCurveTo(26, 7, 10, 7, 0, 0);
+  ctx.fillStyle = "#2f8f3d"; ctx.fill(); ctx.restore();
+}
+
+function petalo(len, ancho, color, oscuro) {
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(ancho * 1.15, -len * 0.25, ancho * 0.9, -len * 0.75, 0, -len);
+  ctx.bezierCurveTo(-ancho * 0.9, -len * 0.75, -ancho * 1.15, -len * 0.25, 0, 0);
+  const g = ctx.createLinearGradient(0, 0, 0, -len);
+  g.addColorStop(0, rgb(mezcla(color, [40, 10, 25], oscuro ? 0.6 : 0.35)));
+  g.addColorStop(0.55, rgb(color));
+  g.addColorStop(1, rgb(mezcla(color, [255, 255, 255], 0.3)));
+  ctx.fillStyle = g; ctx.fill();
+  if (!oscuro) {
+    ctx.strokeStyle = rgb(mezcla(color, [70, 10, 30], 0.45), 0.7); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -len * 0.8); ctx.stroke();
+  }
+}
+
+function cabeza(f, b, t) {
+  const s = rebote(b), len = f.largo * s, ancho = f.largo * 0.3 * s;
+  ctx.save(); ctx.translate(f.x, f.y);
+  ctx.rotate(f.rot + b * 0.9 + Math.sin(t / 1800 + f.fase) * 0.06);   // se abre girando y luego se mece
+  for (let k = 0; k < 3; k++) { ctx.save(); ctx.rotate((30 + k * 120) * Math.PI / 180); petalo(len * 0.92, ancho, f.color, true); ctx.restore(); }
+  for (let k = 0; k < 3; k++) { ctx.save(); ctx.rotate((k * 120 + 60) * Math.PI / 180); petalo(len, ancho, f.color, false); ctx.restore(); }
+  ctx.fillStyle = "#96c846"; ctx.beginPath(); ctx.arc(0, 0, len * 0.09, 0, 6.28); ctx.fill();
+  for (let k = 0; k < 6; k++) {
+    const a = k * 1.047, ex = Math.cos(a) * len * 0.48 * b, ey = Math.sin(a) * len * 0.48 * b;
+    ctx.strokeStyle = "#e1d7b9"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.fillStyle = "#8c2828"; ctx.beginPath(); ctx.arc(ex, ey, Math.max(1, len * 0.04), 0, 6.28); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function dibujarFlor(f, t) {
+  const edad = t - f.t0;
+  const prog = salida(clamp(edad / 1300));
+  ctx.lineCap = "round"; ctx.lineWidth = 3.2; ctx.strokeStyle = "#2f8f3d";
+  ctx.beginPath();
+  const pasos = 26;
+  for (let i = 0; i <= pasos; i++) { const p = punto(f, prog * i / pasos); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
+  ctx.stroke();
+  for (const [pos, lado] of [[0.42, 1], [0.66, -1]]) {
+    if (prog > pos) { const p = punto(f, pos); hoja(p[0], p[1], lado > 0 ? -0.5 : Math.PI + 0.5, clamp((prog - pos) * 4) * 0.9); }
+  }
+  const b = clamp((edad - 1100) / 1300);
+  if (b > 0) {
+    cabeza(f, b, t);
+    if (b >= 1 && !f.chispas) {
+      f.chispas = true;
+      for (let i = 0; i < 12; i++) { const a = Math.random() * 6.28, v = 0.4 + Math.random() * 1.1;
+        chispas.push({ x: f.x, y: f.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vida: 1, c: f.color }); }
+    }
+  } else if (prog > 0.98) {                       // capullito antes de abrir
+    ctx.fillStyle = rgb(mezcla(f.color, [0, 0, 0], 0.3)); ctx.beginPath(); ctx.ellipse(f.x, f.y, 4, 7, 0, 0, 6.28); ctx.fill();
+  }
+}
+
+function cuadro(t) {
+  ctx.clearRect(0, 0, W, H);
+  for (const e of estrellas) {
+    const v = 0.5 + 0.5 * Math.sin(t / 1000 * e.vel + e.fase);
+    if (v < 0.2) continue;
+    ctx.fillStyle = rgb(e.c, v);
+    ctx.beginPath(); ctx.arc(e.x, e.y, 0.5 + v * 1.5, 0, 6.28); ctx.fill();
+    if (v > 0.9) { ctx.fillRect(e.x - 5, e.y - 0.4, 10, 0.8); ctx.fillRect(e.x - 0.4, e.y - 5, 0.8, 10); }
+  }
+  for (const f of flores) dibujarFlor(f, t);
+  for (let i = chispas.length - 1; i >= 0; i--) {
+    const c = chispas[i]; c.x += c.vx; c.y += c.vy; c.vida -= 0.02;
+    if (c.vida <= 0) { chispas.splice(i, 1); continue; }
+    ctx.fillStyle = rgb(mezcla(c.c, [255, 255, 255], 0.5), c.vida);
+    ctx.beginPath(); ctx.arc(c.x, c.y, 1.6, 0, 6.28); ctx.fill();
+  }
+  requestAnimationFrame(cuadro);
+}
+requestAnimationFrame(cuadro);
+</script>
+</body>
+</html>
